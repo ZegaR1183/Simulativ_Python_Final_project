@@ -5,6 +5,8 @@ import requests
 import json
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
 
 # Настройка повторных попыток для декоратора
@@ -47,6 +49,38 @@ def process_passback_params(params_str):
         logging.error(f"Ошибка декодирования JSON: {e}")
         return None
 
+# Функция для агрегации данных
+def aggregate_data(data):
+    attempts_count = len(data)
+    successful_attempts = sum(1 for item in data if item.get('is_correct'))
+    unique_users = len(set(item['lti_user_id'] for item in data))
+
+    logging.info(f"Всего попыток: {attempts_count}")
+    logging.info(f"Успешных попыток: {successful_attempts}")
+    logging.info(f"Уникальных пользователей: {unique_users}")
+
+    return {
+        'Всего попыток': attempts_count,
+        'Успешных попыток': successful_attempts,
+        'Уникальных пользователей': unique_users
+    }
+
+# Функция для загрузки агрегированных данных в Google Sheets
+def upload_to_google_sheets(data, sheet_name):
+    scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_name('hale-life-484718-j1-e4d6616dbf35.json', scope)
+    client = gspread.authorize(creds)
+
+    sheet = client.open("api_sim_fin_project").worksheet(sheet_name)
+    headers = ["Параметр", "Значение"]
+    sheet.insert_row(headers, index=1)
+
+    row = 2
+    for key, value in data.items():
+        sheet.insert_row([key, value], index=row)
+        row += 1
+
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -66,6 +100,8 @@ params = {
 try:
     data = request_errors(api_url, params)
     if data is not None:
+        aggregated_data = aggregate_data(data)
+        upload_to_google_sheets(aggregated_data, "Aggregated Data")  # Используйте имя листа
         for item in data:
             user_id = item['lti_user_id']
             passback_params = item['passback_params']
