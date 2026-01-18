@@ -1,4 +1,6 @@
 # Импорты библиотек
+from http.client import responses
+
 import requests
 import json
 import logging
@@ -7,16 +9,30 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 # Настройка повторных попыток для декоратора
 @retry(
-    stop=stop_after_attempt(3),  # До 5 попыток
+    stop=stop_after_attempt(3),  # До 3 попыток
     wait=wait_exponential(multiplier=1, min=2, max=60),  # Увеличение времени ожидания до 60 секунд
     retry=retry_if_exception_type(requests.exceptions.RequestException)  # Повторять при исключениях requests
 )
-def fetch_data(api_url, params):
+
+def request_errors(api_url, params):
     response = requests.get(api_url, params=params)
-    # Проверяем код состояния, например, если 5xx, бросаем исключение
+
+    # Проверяем код состояния, обрабатываем запрос или вызываем исключение
     if response.status_code >= 500:
+        logging.error(f"Сервер не смог корректно обработать запрос: {response.status_code} для URL: {api_url}")
         response.raise_for_status()
-    return response.json()
+    elif response.status_code >= 400:
+        logging.error(f"Запрос содержит ошибки или не может быть выполнен {response.status_code} для URL: {api_url}")
+        response.raise_for_status()
+    elif response.status_code >= 300:
+        logging.error(f"Требуются дополнительные действия для завершения запроса {response.status_code} для URL: {api_url}")
+        response.raise_for_status()
+    else:
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            logging.error(f"Ошибка декодирования JSON: {e}")
+            return None
 
 def process_passback_params(params_str):
     try:
@@ -35,7 +51,8 @@ def process_passback_params(params_str):
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='/home/zega_r/Desktop/Education/Simulative/Final_project/log.txt')
+    filename='app.log',
+    filemode="w")
 
 # URL и параметры запроса
 api_url = "https://b2b.itresume.ru/api/statistics"
@@ -46,12 +63,9 @@ params = {
     "end": "2023-04-02 12:46:47.860798",
 }
 
-
-response = requests.get(api_url, params=params)
-
-if response.status_code == 200:
-    try:
-        data = response.json()
+try:
+    data = request_errors(api_url, params)
+    if data is not None:
         for item in data:
             user_id = item['lti_user_id']
             passback_params = item['passback_params']
@@ -77,8 +91,7 @@ if response.status_code == 200:
             }
 
             logging.info(f"Обработанные данные: {result}")
-
-    except ValueError as e:
-        logging.error(f"Ошибка при обработке ответа: {e}")
-else:
-    logging.error(f"Ошибка доступа к API: {response.status_code}")
+    else:
+        logging.error("Данные не были получены или произошла ошибка при декодировании JSON")
+except ValueError as e:
+    logging.error(f"Ошибка при обработке ответа: {e}")
