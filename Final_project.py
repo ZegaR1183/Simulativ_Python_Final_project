@@ -7,6 +7,10 @@ import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import smtplib
+import ssl
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 
 # Настройка повторных попыток для декоратора
@@ -80,6 +84,32 @@ def upload_to_google_sheets(data, sheet_name):
         sheet.insert_row([key, value], index=row)
         row += 1
 
+def send_email(subject, body, to_email):
+    smtp_server = "smtp.yandex.ru"  # SMTP сервер вашего почтового провайдера
+    port = 465  # Для SSL
+    sender_email = "r.evgeniy.v@yandex.ru"
+    sender_password = "***"
+
+    # Создаем объект сообщения
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = to_email
+    message["Subject"] = subject
+
+    # Добавляем текст в сообщение
+    message.attach(MIMEText(body, "plain"))
+
+    # Создаем контекст для SSL
+    context = ssl.create_default_context()
+
+    # Отправка письма через SMTP сервер
+    try:
+        with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, to_email, message.as_string())
+            print("Письмо успешно отправлено!")
+    except Exception as e:
+        print(f"Ошибка при отправке письма: {e}")
 
 # Настройка логирования
 logging.basicConfig(
@@ -101,7 +131,12 @@ try:
     data = request_errors(api_url, params)
     if data is not None:
         aggregated_data = aggregate_data(data)
-        upload_to_google_sheets(aggregated_data, "Aggregated Data")  # Используйте имя листа
+        upload_to_google_sheets(aggregated_data, "Aggregated Data")
+        send_email(
+            subject="Уведомление API запроса",
+            body="API запрос прошёл успешно",
+            to_email="r.evgeniy.v@gmail.com"
+        )
         for item in data:
             user_id = item['lti_user_id']
             passback_params = item['passback_params']
@@ -131,3 +166,9 @@ try:
         logging.error("Данные не были получены или произошла ошибка при декодировании JSON")
 except ValueError as e:
     logging.error(f"Ошибка при обработке ответа: {e}")
+    send_email(
+        subject="Уведомление API запроса",
+        body="Ошибка при обработке ответа",
+        to_email="r.evgeniy.v@gmail.com"
+    )
+
