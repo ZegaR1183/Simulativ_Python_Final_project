@@ -1,6 +1,4 @@
 # Импорты библиотек
-from http.client import responses
-
 import requests
 import json
 import logging
@@ -84,6 +82,7 @@ def upload_to_google_sheets(data, sheet_name):
         sheet.insert_row([key, value], index=row)
         row += 1
 
+# Функция отправки оповещений на почту.
 def send_email(subject, body, to_email):
     smtp_server = "smtp.yandex.ru"  # SMTP сервер вашего почтового провайдера
     port = 465  # Для SSL
@@ -107,9 +106,9 @@ def send_email(subject, body, to_email):
         with smtplib.SMTP_SSL(smtp_server, port, context=context) as server:
             server.login(sender_email, sender_password)
             server.sendmail(sender_email, to_email, message.as_string())
-            print("Письмо успешно отправлено!")
+            logging.info("Письмо успешно отправлено!")
     except Exception as e:
-        print(f"Ошибка при отправке письма: {e}")
+        logging.error(f"Ошибка при отправке письма: {e}")
 
 # Настройка логирования
 logging.basicConfig(
