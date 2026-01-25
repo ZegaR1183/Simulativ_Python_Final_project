@@ -65,4 +65,25 @@ def sales_by_subcategories(df):
     plt.tight_layout()
     plt.show()
 
-sales_by_subcategories(df)
+# Cредний чек в заданную дату
+specific_date = '2022.01.13'
+
+def average_check(df_orders, specific_date):
+    # Конвертация столбца с датами в формат datetime для фильтрации
+    df_orders['accepted_at'] = pd.to_datetime(df_orders['accepted_at'])
+
+    # Фильтрация данных по заданной дате
+    daily_orders = df_orders[df_orders['accepted_at'].dt.date == pd.to_datetime(specific_date).date()]
+
+    # Сумма выручки для каждого заказа
+    daily_orders['revenue'] = daily_orders['price'] * daily_orders['quantity']
+
+    # Расчет общего количества заказов и общей суммы выручки за день
+    total_revenue = daily_orders['revenue'].sum()
+    total_orders = daily_orders['order_id'].nunique()
+
+    # Вычисление среднего чека
+    average_check = total_revenue / total_orders if total_orders != 0 else 0
+
+    print(f"Средний чек на {specific_date}: {average_check:.2f} рублей")
+
