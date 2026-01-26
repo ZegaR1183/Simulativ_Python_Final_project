@@ -2,14 +2,61 @@
 import requests
 import json
 import logging
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import smtplib
 import ssl
+import psycopg2
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from oauth2client.service_account import ServiceAccountCredentials
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='app.log',
+    filemode="w")
+
+# Загрузка конфигурации из файла
+try:
+    with open('config.json', 'r') as config_file:
+        config = json.load(config_file)
+    db_config = config['db_config']
+    email_config = config['email_config']
+    api_keys = config['api_keys']
+except FileNotFoundError:
+    logging.error("Файл конфигурации не найден. Пожалуйста, убедитесь, что 'config.json' существует.")
+    raise
+except json.JSONDecodeError as e:
+    logging.error(f"Ошибка декодирования JSON в файле конфигурации: {e}")
+    raise
+
+# Установка соединения с базой данных
+connection = psycopg2.connect(
+    dbname=db_config['dbname'],
+    user=db_config['user'],
+    password=db_config['password'],
+    host=db_config['host'],
+    port=db_config['port']
+)
+
+cursor = connection.cursor()
+
+# Создание таблицы для БД
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS student_data (
+        user_id VARCHAR,
+        oauth_consumer_key VARCHAR,
+        lis_result_sourcedid TEXT,
+        lis_outcome_service_url TEXT,
+        is_correct BOOLEAN,
+        attempt_type VARCHAR,
+        created_at TIMESTAMP
+    )
+''')
+connection.commit()
 
 # Настройка повторных попыток для декоратора
 @retry(
@@ -84,10 +131,10 @@ def upload_to_google_sheets(data, sheet_name):
 
 # Функция отправки оповещений на почту.
 def send_email(subject, body, to_email):
-    smtp_server = "smtp.yandex.ru"  # SMTP сервер вашего почтового провайдера
-    port = 465  # Для SSL
-    sender_email = "r.evgeniy.v@yandex.ru"
-    sender_password = "***"
+    smtp_server = email_config["smtp_server"]
+    port = email_config["port"]
+    sender_email = email_config["sender_email"]
+    sender_password = email_config["email_password"]
 
     # Создаем объект сообщения
     message = MIMEMultipart()
@@ -110,18 +157,12 @@ def send_email(subject, body, to_email):
     except Exception as e:
         logging.error(f"Ошибка при отправке письма: {e}")
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='app.log',
-    filemode="w")
 
 # URL и параметры запроса
 api_url = "https://b2b.itresume.ru/api/statistics"
 params = {
-    "client": "Skillfactory",
-    "client_key": "M2MGWS",
+    "client": api_keys["client"],
+    "client_key": api_keys["client_key"],
     "start": "2023-04-01 12:46:47.860798",
     "end": "2023-04-02 12:46:47.860798",
 }
@@ -160,7 +201,25 @@ try:
                 "created_at": created_at
             }
 
+            # Вставка в базу данных
+            cursor.execute('''
+                    INSERT INTO student_data (user_id, oauth_consumer_key, lis_result_sourcedid, lis_outcome_service_url, is_correct, attempt_type, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ''', (
+                result['user_id'],
+                result['oauth_consumer_key'],
+                result['lis_result_sourcedid'],
+                result['lis_outcome_service_url'],
+                result['is_correct'],
+                result['attempt_type'],
+                result['created_at']
+            ))
+
             logging.info(f"Обработанные данные: {result}")
+        # Закрытие cursor и соединения
+        connection.commit()
+        cursor.close()
+        connection.close()
     else:
         logging.error("Данные не были получены или произошла ошибка при декодировании JSON")
 except ValueError as e:
