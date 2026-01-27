@@ -14,6 +14,11 @@ df_products = pd.read_excel('/home/zega_r/Desktop/Education/Simulative/Final_pro
 # Объединение датафреймов
 df = pd.merge(df_products, df_orders, on='product_id')
 
+# Добавление столбцов прибыли и выручки
+df['revenue'] = df['price'] * df['quantity']  # Выручка
+df['cost'] = df['cost_price'] * df['quantity']  # Себестоимость
+df['profit'] = df['revenue'] - df['cost']  # Прибыль
+
 # Функция определения самой ходовой группы товара и отображение на графике
 def popular_product_group(df):
     # группировка результата
@@ -87,4 +92,121 @@ def average_check(df_orders, specific_date):
 
     print(f"Средний чек на {specific_date}: {average_check:.2f} рублей")
 
-average_check(df_orders, specific_date)
+# Доля промо в заданной категории
+def promo_share_category(df, category_name):
+    # Фильтрация по категории
+    category_df = df[df['level1'] == category_name].copy()
+
+    # Товары, проданные по промо
+    category_df['is_promo'] = category_df['regular_price'] != category_df['price']
+
+    # Суммарное количество проданных товаров и проданных по промо товаров
+    total_quantity = category_df['quantity'].sum()
+    promo_quantity = category_df[category_df['is_promo']]['quantity'].sum()
+
+    # Доля промо
+    promo_share = promo_quantity / total_quantity if total_quantity != 0 else 0
+
+    # Вывод
+    print(f"Доля товаров по промо в категории '{category_name}': {promo_share:.2%}")
+
+    # Построение пайчарта
+    labels = ['Промо', 'Не промо']
+    sizes = [promo_quantity, total_quantity - promo_quantity]
+    colors = ['skyblue', 'lightgrey']
+
+    plt.figure(figsize=(8, 8))
+    plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=140)
+    plt.title(f"Доля промо в категории '{category_name}'")
+    plt.axis('equal')  # Круг
+    plt.show()
+
+# Посчитать маржу по категориям
+def calculate_margin_by_category(df):
+
+    # Группировка данных по категориям
+    category_profit = df.groupby('level1').agg(
+        total_profit=pd.NamedAgg(column='profit', aggfunc='sum'),
+        total_revenue=pd.NamedAgg(column='revenue', aggfunc='sum')
+    ).reset_index()
+
+    # Расчет процентной маржи
+    category_profit['profit_margin_percent'] = (
+                category_profit['total_profit'] / category_profit['total_revenue'] * 100).round(2)
+
+    # Вывод таблицы маржи
+    print(category_profit)
+
+    # Построение барчартов
+    plt.figure(figsize=(14, 6))
+    plt.barh(category_profit['level1'], category_profit['total_profit'], color='skyblue')
+    plt.title('Прибыль по категориям (руб)')
+    plt.xlabel('Прибыль (руб)')
+    plt.ylabel('Категория')
+    plt.show()
+
+    plt.figure(figsize=(14, 6))
+    plt.barh(category_profit['level1'], category_profit['profit_margin_percent'], color='lightgreen')
+    plt.title('Процентная маржа по категориям (%)')
+    plt.xlabel('Маржа (%)')
+    plt.ylabel('Категория')
+    plt.show()
+
+def abc_analysis(df):
+    # # Вычисление выручки и количества по подкатегориям
+    # df['revenue'] = df['price'] * df['quantity']
+
+    # Вычисление выручки и количества по подкатегориям
+    subcategory_stats = df.groupby('level2').agg(
+        total_quantity=pd.NamedAgg(column='quantity', aggfunc='sum'),
+        total_revenue=pd.NamedAgg(column='revenue', aggfunc='sum')
+    ).reset_index()
+
+    # Сортировка и расчет кумулятивного процента по количеству
+    subcategory_stats = subcategory_stats.sort_values(by='total_quantity', ascending=False)
+    subcategory_stats['cum_quantity_percent'] = subcategory_stats['total_quantity'].cumsum() / subcategory_stats[
+        'total_quantity'].sum() * 100
+
+    # Сортировка и расчет кумулятивного процента по выручке
+    subcategory_stats = subcategory_stats.sort_values(by='total_revenue', ascending=False)
+    subcategory_stats['cum_revenue_percent'] = subcategory_stats['total_revenue'].cumsum() / subcategory_stats[
+        'total_revenue'].sum() * 100
+
+    # Определяем группу ABC
+    def define_abc_group(value):
+        if value <= 70:
+            return 'A'
+        elif value <= 90:
+            return 'B'
+        else:
+            return 'C'
+
+    subcategory_stats['ABC_group_quantity'] = subcategory_stats['cum_quantity_percent'].apply(define_abc_group)
+    subcategory_stats['ABC_group_revenue'] = subcategory_stats['cum_revenue_percent'].apply(define_abc_group)
+
+    # Выводим результаты
+    print(subcategory_stats)
+
+# Вызов всех функций для анализа данных
+def perform_analysis(df, df_orders):
+    print("\nMost popular product group:")
+    popular_product_group(df)
+
+    print("\nSales by subcategories:")
+    sales_by_subcategories(df)
+
+    print("\nAverage check on specific date:")
+    average_check(df_orders, '2022-01-13')
+
+    print("\nPromo share in category 'Сыры':")
+    promo_share_category(df, 'Сыры')  # Замените 'Сыры' на другую категорию, если хотите
+
+    print("\nMargin by category:")
+    calculate_margin_by_category(df)
+
+    print("\nABC Analysis:")
+    abc_analysis(df)
+
+
+# Выполнение анализа
+perform_analysis(df, df_orders)
